@@ -13,6 +13,7 @@ types-requests = "^2.28.11.13"
 types-peewee = "^3.15.0.6"
 pymysql = "^1.0.2"
 python-dotenv = "^0.21.1"
+loguru = "^0.6.0"
 
 
 [tool.poetry.group.dev.dependencies]

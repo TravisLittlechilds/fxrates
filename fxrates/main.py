@@ -1,8 +1,11 @@
 import os
 import requests
 
-from peewee import *
+
 from datetime import date, datetime
+from loguru import logger
+from peewee import *
+
 
 from dotenv import load_dotenv
 
@@ -69,7 +72,7 @@ if database.is_closed():
     database.connect()
 
 updateSuccess = 0
-updateError = 1
+updateError = 0
 
 for i in fxData["conversion_rates"]:
     try:
@@ -81,6 +84,7 @@ for i in fxData["conversion_rates"]:
             updateSuccess += 1
     except IntegrityError:
         updateError += 1
+        logger.debug(f"Error on {i}")
         continue
 
 database.close()
