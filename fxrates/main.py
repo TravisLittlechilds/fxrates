@@ -89,5 +89,5 @@ for i in fxData["conversion_rates"]:
 
 database.close()
 print(
-    f"fxRates updated {date.today()} with {updateSuccess} successes and {updateError} errors"
+    f"\nfxRates updated {date.today()} with {updateSuccess} successes and {updateError} errors\n"
 )
