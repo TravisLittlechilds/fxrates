@@ -84,10 +84,23 @@ for i in fxData["conversion_rates"]:
             updateSuccess += 1
     except IntegrityError:
         updateError += 1
-        logger.debug(f"Error on {i}")
+        logger.debug(f"Error for {i}")
         continue
 
 database.close()
-print(
-    f"\nfxRates updated {date.today()} with {updateSuccess} successes and {updateError} errors\n"
+
+if (updateError > 0) and (updateSuccess == 0):
+    logger.error(
+        f"{date.today()} - {updateError} error{'s'[:updateError^1]} during processing."
+    )
+if (updateSuccess > 0) and (updateError > 0):
+    logger.error(
+        f"{date.today()} - {updateSuccess} rate{'s'[:updateSuccess^1]} updated, {updateError} error{'s'[:updateError^1]} during processing."
+    )
+if (updateSuccess > 0) and (updateError == 0):
+    logger.success(
+        f"{date.today()} - all rates successfully updated ({updateSuccess} total.)"
+    )
+logger.trace(
+    f"fxRates updated {date.today()} with {updateSuccess} success{'es'[:updateSuccess^1]} and {updateError} error{'s'[:updateError^1]}"
 )
