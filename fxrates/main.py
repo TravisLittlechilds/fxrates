@@ -1,33 +1,27 @@
 import os
 import requests
-
+import sys
 
 from datetime import date, datetime
-from loguru import logger
 from peewee import *
-
+from typing import Dict
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-dbName = os.getenv("DBNAME", "database")
-hostname = os.getenv("HOST", "localhost")
-port = int(os.getenv("PORT", 3336))
-user = os.getenv("USER")
-password = os.getenv("PASSWORD")
-apikey = os.getenv("APIKEY")
+from loguru import logger
 
-fxUrl = f"https://v6.exchangerate-api.com/v6/{apikey}/latest/EUR"
+logger.remove()
+logger.add(
+    sys.stdout,
+    format="{time:YYYY-MM-DD at HH:mm:ss} | <lvl>{level}</lvl> | {message}",
+)
 
-fxResponse = requests.get(fxUrl)
-fxData = fxResponse.json()
-
-update_date = datetime.utcfromtimestamp(fxData["time_last_update_unix"]).date()
 
 try:
     database = MySQLDatabase(
-        dbName,
+        os.getenv("DBNAME", "database"),
         thread_safe=True,
         autorollback=True,
         field_types=None,
@@ -38,10 +32,10 @@ try:
             "charset": "utf8",
             "sql_mode": "PIPES_AS_CONCAT",
             "use_unicode": True,
-            "host": hostname,
-            "port": port,
-            "user": user,
-            "password": password,
+            "host": os.getenv("HOST", "localhost"),
+            "port": int(os.getenv("PORT", 3336)),
+            "user": os.getenv("USER"),
+            "password": os.getenv("PASSWORD"),
         },
     )
 except:
@@ -68,39 +62,61 @@ class Rate(BaseModel):
         indexes = ((("date_", "currency"), True),)
 
 
-if database.is_closed():
-    database.connect()
+def getRates() -> Dict:
+    apikey = os.getenv("APIKEY")
+    fxUrl = f"https://v6.exchangerate-api.com/v6/{apikey}/latest/EUR"
+    fxResponse = requests.get(fxUrl)
+    fxData = fxResponse.json()
+    return fxData
 
-updateSuccess = 0
-updateError = 0
 
-for i in fxData["conversion_rates"]:
-    try:
-        with database.atomic():
-            new_rate = Rate(
-                date_=update_date, currency=i, to_eur=fxData["conversion_rates"][i]
-            )
-            new_rate.save()
-            updateSuccess += 1
-    except IntegrityError:
-        updateError += 1
-        logger.debug(f"Error for {i}")
-        continue
+def updateDB(database: MySQLDatabase) -> None:
+    if database.is_closed():
+        database.connect()
 
-database.close()
+    if date.today() == checkLatest(database):
+        logger.error(f"already updated for {date.today()}")
+        return
 
-if (updateError > 0) and (updateSuccess == 0):
-    logger.error(
-        f"{date.today()} - {updateError} error{'s'[:updateError^1]} during processing."
+    fxData = getRates()
+    update_date = datetime.utcfromtimestamp(fxData["time_last_update_unix"]).date()
+
+    updateSuccess = 0
+    updateError = 0
+
+    for i in fxData["conversion_rates"]:
+        try:
+            with database.atomic():
+                new_rate = Rate(
+                    date_=update_date, currency=i, to_eur=fxData["conversion_rates"][i]
+                )
+                new_rate.save()
+                updateSuccess += 1
+        except IntegrityError:
+            updateError += 1
+            logger.opt(colors=True).debug(f"<red>Error for {i}</red>")
+            continue
+
+    database.close()
+
+    logger.info(
+        f"{date.today()}: fxRates processed {updateError + updateSuccess} total. "
     )
-if (updateSuccess > 0) and (updateError > 0):
-    logger.error(
-        f"{date.today()} - {updateSuccess} rate{'s'[:updateSuccess^1]} updated, {updateError} error{'s'[:updateError^1]} during processing."
-    )
-if (updateSuccess > 0) and (updateError == 0):
-    logger.success(
-        f"{date.today()} - all rates successfully updated ({updateSuccess} total.)"
-    )
-logger.trace(
-    f"fxRates updated {date.today()} with {updateSuccess} success{'es'[:updateSuccess^1]} and {updateError} error{'s'[:updateError^1]}"
-)
+
+    if updateError == 0:
+        logger.opt(colors=True).success(
+            f"<green>{updateSuccess} rate{'s' if updateSuccess != 1 else ''} updated.</>"
+        )
+    else:
+        logger.opt(colors=True).error(
+            f"<red>{updateError} error{'s' if updateError != 1 else ''} during processing.</>"
+        )
+    return
+
+
+def checkLatest(database: MySQLDatabase) -> date:
+    query = Rate.select(fn.MAX(Rate.date_))
+    return query.scalar()
+
+
+updateDB(database)
